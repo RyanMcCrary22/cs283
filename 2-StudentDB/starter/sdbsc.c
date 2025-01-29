@@ -10,9 +10,6 @@
 #include "db.h"
 #include "sdbsc.h"
 
-// student_t sized memory of all 0 bytes for use in memcmp
-const student_t zero_student = {0};
-const char all_zeros[sizeof(student_t)] = {0};
 
 /*
  *  open_db
@@ -64,22 +61,23 @@ int open_db(char *dbFile, bool should_truncate){
  */
 int get_student(int fd, int id, student_t *s){
 
-    int offset = id * sizeof(student_t);
+    int offset = id * STUDENT_RECORD_SIZE;
     int result = lseek( fd, offset, SEEK_SET );  // move the file pointer to the given student id
     if (result == -1 ) {
         // if the lseek returns -1 then the offset ran out of the file or a similar error
         return ERR_DB_FILE; 
     }
 
-    result = read( fd, s, sizeof(student_t) ); // read the student into the pointer s
-    if (result == -1 ) {
+    result = read( fd, s, STUDENT_RECORD_SIZE ); // read the student into the pointer s
+    if (result == -1 || result == 0) {
         // if the read returns -1 then it failed
+        // if the read returns 0 then it reached EOF meaning it did not read in a full student
         return ERR_DB_FILE; 
     }
 
     // check if the slot was zeros or an existing student
-    //printf( "What does compare say: %d\n", memcmp( s, &all_zeros, sizeof(student_t) ));
-    if( memcmp( s, &all_zeros, sizeof(student_t)) == 0  || s == NULL ){
+    //printf( "What does compare say: %d\n", memcmp( s, &EMPTY_STUDENT_RECORD, STUDENT_RECORD_SIZE ));
+    if( memcmp( s, &EMPTY_STUDENT_RECORD, STUDENT_RECORD_SIZE) == 0  || s == NULL ){
         return SRCH_NOT_FOUND;
     }
 
@@ -113,7 +111,7 @@ int get_student(int fd, int id, student_t *s){
  */
 int add_student(int fd, int id, char *fname, char *lname, int gpa){
 
-    int offset = id * sizeof(student_t); // calculate offset for file pointer
+    int offset = id * STUDENT_RECORD_SIZE; // calculate offset for file pointer
     student_t buff_student;
 
     int does_student_exist = get_student( fd, id, &buff_student);
@@ -138,7 +136,7 @@ int add_student(int fd, int id, char *fname, char *lname, int gpa){
     strcpy( &buff_student.lname, lname );
 
     // write to the db
-    result = write( fd, &buff_student, sizeof(student_t) );
+    result = write( fd, &buff_student, STUDENT_RECORD_SIZE );
     if( result == -1 ) {
         // if result is -1, write failed: print error
         printf(M_ERR_DB_WRITE);
@@ -172,8 +170,45 @@ int add_student(int fd, int id, char *fname, char *lname, int gpa){
  *            
  */
 int del_student(int fd, int id){
-    printf(M_NOT_IMPL);
-    return NOT_IMPLEMENTED_YET;
+
+    student_t buff_student;
+    int exit_code = get_student( fd, id, &buff_student );
+    // get student can return 1 of three ways
+    switch(exit_code){
+        case ERR_DB_FILE:
+            // get student couldn't read the file, report the error and exit
+            printf(M_ERR_DB_READ);
+            break;
+
+        case SRCH_NOT_FOUND:
+            // the student to be deleted did not exist in the db
+            // report error and exit
+            printf(M_STD_NOT_FND_MSG, id);
+            exit_code = ERR_DB_OP;
+            break;
+        
+        case NO_ERROR:
+            // the student was found and exists, write it out with 0's
+            // the file pointer is at the end of the current record, so move it back 1
+            int result = lseek( fd, -STUDENT_RECORD_SIZE, SEEK_CUR ); 
+            if (result == -1){
+                // seek gave an error
+                printf(M_ERR_DB_READ);
+                exit_code = ERR_DB_FILE;
+            }
+            result = write( fd, &EMPTY_STUDENT_RECORD, STUDENT_RECORD_SIZE );
+            if (result == -1){
+                // write gave an error
+                printf(M_ERR_DB_WRITE);
+                exit_code = ERR_DB_FILE;
+            } else {
+                printf(M_STD_DEL_MSG, id);
+                exit_code = NO_ERROR;
+            }
+            break;
+    
+    }
+    return exit_code;
 }
 
 /*
@@ -201,8 +236,36 @@ int del_student(int fd, int id){
  *            
  */
 int count_db_records(int fd){
-    printf(M_NOT_IMPL);
-    return NOT_IMPLEMENTED_YET;
+    int number_of_records = 0;
+    student_t buff_student;
+    // since our id range starts at 1, the first 64 bytes will always be empty
+    // read it before looping to test for an empty database
+    int read_result = read( fd, &buff_student, STUDENT_RECORD_SIZE);
+    if( read_result == 0 ){
+        printf(M_DB_EMPTY);
+        return number_of_records;
+    }
+    else if(read_result == -1){
+        printf(M_ERR_DB_READ);
+        return ERR_DB_FILE;
+    }
+
+    // loop through the rest of the database and check for student records
+    while ( read_result=read(fd, &buff_student, STUDENT_RECORD_SIZE) != 0 ){
+        // check for read errors again
+        if(read_result == -1){
+            printf(M_ERR_DB_READ);
+            return ERR_DB_FILE;
+        }
+        // check if you read in a student or an empty record
+        if( memcmp( &buff_student, &EMPTY_STUDENT_RECORD, STUDENT_RECORD_SIZE) != 0 ){
+            // if memcmp returns a non-zero value, then the record was not empty and should be counted
+            number_of_records++;
+        }
+    }
+
+    printf(M_DB_RECORD_CNT, number_of_records);
+    return number_of_records;
 }
 
 /*
@@ -211,7 +274,7 @@ int count_db_records(int fd){
  * 
  *  Prints all records in the database.  Start by reading the 
  *  database at the beginning, and continue reading individual records
- *  until you it EOF.  EOF is when the read() syscall returns 0. Check
+ *  until you hit EOF.  EOF is when the read() syscall returns 0. Check
  *  if a slot is empty or previously deleted by investigating if all of 
  *  the bytes in the record read are zeros - I would suggest using memory
  *  compare memcmp() for this. Be careful as the database might be empty.
@@ -239,8 +302,42 @@ int count_db_records(int fd){
  *            
  */
 int print_db(int fd){
-    printf(M_NOT_IMPL);
-    return NOT_IMPLEMENTED_YET;
+    int first_record = 0; // boolean int to keep track of when the first occupied record is found, start as 0 and make 1 when found
+    student_t buff_student;
+    // since our id range starts at 1, the first 64 bytes will always be empty
+    // read it before looping to test for an empty database
+    int read_result = read( fd, &buff_student, STUDENT_RECORD_SIZE);
+    if( read_result == 0 ){
+        printf(M_DB_EMPTY);
+        return NO_ERROR;
+    }
+    else if(read_result == -1){
+        printf(M_ERR_DB_READ);
+        return ERR_DB_FILE;
+    }
+
+    // loop through the rest of the database and check for student records
+    while ( read_result=read(fd, &buff_student, STUDENT_RECORD_SIZE) != 0 ){
+        // check for read errors again
+        if(read_result == -1){
+            printf(M_ERR_DB_READ);
+            return ERR_DB_FILE;
+        }
+        // check if you read in a student or an empty record
+        if( memcmp( &buff_student, &EMPTY_STUDENT_RECORD, STUDENT_RECORD_SIZE) != 0 ){
+            // if memcmp returns a non-zero value, then the record was not empty and should be printed
+            if( first_record == 0 ){
+                first_record = 1; // set to 1 now that a record has been found
+                printf(STUDENT_PRINT_HDR_STRING, "ID", "FIRST NAME", "LAST_NAME", "GPA");
+            }
+            float real_gpa = (float) buff_student.gpa / 100;
+            printf(STUDENT_PRINT_FMT_STRING, buff_student.id, buff_student.fname, buff_student.lname, real_gpa);
+        }
+    }
+    if( first_record == 0){
+        printf(M_DB_EMPTY);
+    }
+    return NO_ERROR;
 }
 
 /*
