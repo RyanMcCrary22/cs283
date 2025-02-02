@@ -118,7 +118,7 @@ int add_student(int fd, int id, char *fname, char *lname, int gpa){
     if( does_student_exist == NO_ERROR ){
         // if get student returns no error, than the id is already taken
         printf(M_ERR_DB_ADD_DUP, id);
-        exit(ERR_DB_OP);
+        return ERR_DB_OP;
     }
 
 
