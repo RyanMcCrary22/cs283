@@ -164,6 +164,11 @@ int build_cmd_list( char *cmd_line, command_list_t *cmds ){
     tok_buff = strtok( cmd_line, PIPE_STRING );  // split the command line by pipe characters
     while( tok_buff != NULL )
     {
+        // check for too many commands
+        if( cmd_count >= CMD_MAX ){
+            // if equal to cmd max, then we're processing 1 more than the max
+            return ERR_CMD_OR_ARGS_TOO_BIG;
+        }
         build_cmd_buff( tok_buff, &cmds->commands[cmd_count] );
         cmd_count++;
         tok_buff = strtok( NULL, PIPE_STRING );
@@ -304,7 +309,6 @@ int clear_cmd_list( command_list_t *cmds ){
     // Wait for all children
     for (int i = 0; i < clist->num; i++) {
         waitpid(pids[i], NULL, 0);
-        return OK;
     }
 return OK;
 }
@@ -332,6 +336,10 @@ int exec_local_cmd_loop()
 
         //rc = build_cmd_buff( cmd_buff, &cmd );
         rc = build_cmd_list( cmd_buff, &cmds );
+        if (rc == ERR_CMD_OR_ARGS_TOO_BIG ){
+            printf("%s", CMD_ERR_PIPE_LIMIT, CMD_MAX);
+            continue;
+        }
 
         // check for empty command
         if( cmds.num < 1 ){

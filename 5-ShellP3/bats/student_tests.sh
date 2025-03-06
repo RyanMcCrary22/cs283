@@ -170,3 +170,91 @@ EOF
     # Assertions
     [ "$stripped_output" = "$expected_output" ]
 }
+
+#### PIPED Tests 
+
+@test "piping ls after chdir" {
+
+    run ./dsh <<EOF
+cd assn6_tmp
+ls -l | wc -w
+EOF
+    
+    # strip all whitespaces form output
+    stripped_output=$(echo "$output" | tr -d '[:space:]')
+
+    expected_output="2dsh3>dsh3>dsh3>cmdloopreturned0"     
+
+    # These echo commands will help with debugging and will only print
+    #if the test fails
+    echo "Captured stdout:" 
+    echo "Output: $output"
+    echo "Exit Status: $status"
+    echo "${stripped_output} -> ${expected_output}"
+
+    # Assertions
+    [ "$stripped_output" = "$expected_output" ]
+}
+
+@test "piped command with invalid args" {
+    run ./dsh << EOF
+ls -l | wc -5
+EOF
+
+     # strip all whitespaces form output
+    stripped_output=$(echo "$output" | tr -d '[:space:]')
+
+    expected_output="wc:invalidoption--'5'Try'wc--help'formoreinformation.dsh3>dsh3>cmdloopreturned0"     
+
+    # These echo commands will help with debugging and will only print
+    #if the test fails
+    echo "Captured stdout:" 
+    echo "Output: $output"
+    echo "Exit Status: $status"
+    echo "${stripped_output} -> ${expected_output}"
+
+    # Assertions
+    [ "$stripped_output" = "$expected_output" ]
+}
+
+@test "too many piped commands" {
+    run ./dsh <<EOF
+cmd 1 | cmd 2 | mcd 3 | 4 | 5 | 6 | 7 | 8 | 9
+EOF
+
+    # strip all whitespaces form output
+    stripped_output=$(echo "$output" | tr -d '[:space:]')
+
+    expected_output="dsh3>error:pipinglimitedto%dcommandsdsh3>cmdloopreturned0"     
+
+    # These echo commands will help with debugging and will only print
+    #if the test fails
+    echo "Captured stdout:" 
+    echo "Output: $output"
+    echo "Exit Status: $status"
+    echo "${stripped_output} -> ${expected_output}"
+
+    # Assertions
+    [ "$stripped_output" = "$expected_output" ]
+}
+
+@test "piping an invalid command" {
+    run ./dsh <<EOF
+ls -a | bruh this not a command 
+EOF
+
+    # strip all whitespaces form output
+    stripped_output=$(echo "$output" | tr -d '[:space:]')
+
+    expected_output="execvp:Nosuchfileordirectorydsh3>dsh3>dsh3>cmdloopreturned0"     
+
+    # These echo commands will help with debugging and will only print
+    #if the test fails
+    echo "Captured stdout:" 
+    echo "Output: $output"
+    echo "Exit Status: $status"
+    echo "${stripped_output} -> ${expected_output}"
+
+    # Assertions
+    [ "$stripped_output" = "$expected_output" ]
+}
